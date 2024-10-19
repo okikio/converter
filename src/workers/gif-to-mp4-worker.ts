@@ -8,12 +8,17 @@ export interface ConverterInput {
   index: number;
 }
 
-export type ConverterOutput = ({
+export type ConverterMessage = ({
   status: 'success',
   file?: File 
 } | {
   status: 'error'
 }) & { index: number }
+
+export interface ConverterOutput {
+  message: ConverterMessage;
+  data?: ConverterInput;
+}
 
 class GifConverterThreadWorker extends ThreadWorker<ConverterInput, ConverterOutput> {  
   constructor() {
@@ -38,16 +43,22 @@ class GifConverterThreadWorker extends ThreadWorker<ConverterInput, ConverterOut
       if (url === "about:blank") throw new Error("Invalid URL");
 
       const videoFile = await convertGifToMp4(url);
-      return ({
-        status: 'success',
-        file: videoFile,
-        index
-      });
+      return {
+        message: {
+          status: 'success',
+          file: videoFile,
+          index
+        },
+        data
+      };
     } catch {
-      return ({
-        status: 'error',
-        index
-      });
+      return {
+        message: {
+          status: 'error',
+          index
+        },
+        data
+      };
     }
   }
 }

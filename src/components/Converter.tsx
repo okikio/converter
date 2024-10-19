@@ -30,6 +30,7 @@ export function Converter() {
   const [conversionProgress, setConversionProgress] = createSignal(0);
   const [totalGifs, setTotalGifs] = createSignal(0);
   const [converting, setConverting] = createSignal(false);
+  const [useThreadPool, setUseThreadPool] = createSignal(false); // New state to track checkbox
 
   const [dynamicPool] = createResource(() => "document" in globalThis, async (test) => {
     if (test) {
@@ -44,6 +45,9 @@ export function Converter() {
         {
           errorEventHandler: (e) => {
             console.error("Worker pool error:", e);
+          },
+          messageEventHandler: (e) => {
+            console.log({ e })
           },
           startWorkers: true
         }
@@ -113,44 +117,32 @@ export function Converter() {
     }[] = [];
 
     const pool = dynamicPool();
-    if (pool) {
-      const MAX_NUM_OF_WORKERS = pool?.availableParallelism() ?? 1;
-
-      // Step 2: Chunk the valid GIFs into groups of 2
-      const gifChunks = chunkArray(
-        Array.from(validGifs.entries()),
-        MAX_NUM_OF_WORKERS ?? 1
-      );
-
-      console.log({
-        gifChunks,
-      });
-
+    if (pool && useThreadPool()) {
       // Distribute conversion tasks among worker threads
-      for (const chunk of gifChunks) {
-        await Promise.all(
-          chunk.map(async ([index, gif]) => {
-            const result = await pool.pool.execute({ url: gif.url, index });
+      await Promise.all(
+        Array.from(validGifs.entries(), async ([index, gif]) => {
+          console.log({ index, gif })
+          const result = await pool.pool.execute({ url: gif.url, index });
+          const output = result.message;
 
-            if (result.status === "success" && result.file) {
-              const videoUrl = URL.createObjectURL(result.file);
-              convertedVideos.push({
-                url: videoUrl,
-                filePath:
-                  result.file?.name?.replace(/\.gif$/, ".mp4") ??
-                  `video${index}.mp4`,
-                selected: false,
-              });
-              setConversionProgress((prev) => prev + 1);
-            } else {
-              // Handle errors by marking them in the UI
-              const updatedGifs = [...gifUrls()];
-              updatedGifs[index].errored = true;
-              setGifUrls(updatedGifs);
-            }
-          })
-        );
-      }
+          if (output.status === "success" && output.file) {
+            const videoUrl = URL.createObjectURL(output.file);
+            convertedVideos.push({
+              url: videoUrl,
+              filePath:
+                output.file?.name?.replace(/\.gif$/, ".mp4") ??
+                `video${index}.mp4`,
+              selected: false,
+            });
+            setConversionProgress((prev) => prev + 1);
+          } else {
+            // Handle errors by marking them in the UI
+            const updatedGifs = [...gifUrls()];
+            updatedGifs[index].errored = true;
+            setGifUrls(updatedGifs);
+          }
+        })
+      );
     } else {
       // Step 2: Chunk the valid GIFs into groups of 2
       const gifChunks = chunkArray(Array.from(validGifs.entries()), 2);
@@ -367,6 +359,20 @@ export function Converter() {
         />
       </div>
 
+      {/* Checkbox to configure if thread pool should be used */}
+      <div class="flex items-center mb-4">
+        <input
+          type="checkbox"
+          id="useThreadPool"
+          checked={useThreadPool()}
+          onChange={() => setUseThreadPool(!useThreadPool())}
+          class="mr-2"
+        />
+        <label for="useThreadPool" class="text-sm font-medium">
+          Use Thread Pool for Conversion
+        </label>
+      </div>
+
       <button
         onClick={convertAllToMp4}
         class="mb-4 text-white bg-green-700 hover:bg-green-800 focus:ring-4 focus:ring-green-300 font-medium rounded-lg text-sm px-6 py-2"
@@ -378,7 +384,7 @@ export function Converter() {
       <Show when={converting()}>
         <div class="w-full max-w-xl bg-gray-300 rounded-lg h-6 mb-4">
           <div
-            class="bg-blue-600 h-6 rounded-lg text-center text-white"
+            class="bg-blue-600 h-6 rounded-lg text-center text-white whitespace-nowrap"
             style={{ width: `${(conversionProgress() / totalGifs()) * 100}%` }}
           >
             {conversionProgress()} / {totalGifs()} GIFs converted
