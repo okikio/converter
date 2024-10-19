@@ -12,7 +12,10 @@ export default defineConfig({
       target: "ES2022" // <--------- ✅✅✅✅✅✅
     },
     optimizeDeps: {
-      exclude: ['astro', '@poolifier/poolifier-web-worker']
+      exclude: ["@poolifier/poolifier-web-worker"]
+    },
+    esbuild: {
+      target: "es2022"
     }
   }
 });

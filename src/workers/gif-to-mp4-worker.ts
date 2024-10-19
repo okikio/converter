@@ -31,6 +31,8 @@ class GifConverterThreadWorker extends ThreadWorker<ConverterInput, ConverterOut
   private async process(data?: ConverterInput): Promise<ConverterOutput> {
     const { url, index } = data ?? { url: "about:blank", index: 0 }
     try {
+      if (url === "about:blank") throw new Error("Invalid URL");
+
       const videoFile = await convertGifToMp4(url);
       return ({
         status: 'success',
