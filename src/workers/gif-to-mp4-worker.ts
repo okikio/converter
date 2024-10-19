@@ -30,6 +30,10 @@ class GifConverterThreadWorker extends ThreadWorker<ConverterInput, ConverterOut
    */
   private async process(data?: ConverterInput): Promise<ConverterOutput> {
     const { url, index } = data ?? { url: "about:blank", index: 0 }
+
+    console.log({
+      data
+    })
     try {
       if (url === "about:blank") throw new Error("Invalid URL");
 
@@ -46,7 +50,6 @@ class GifConverterThreadWorker extends ThreadWorker<ConverterInput, ConverterOut
       });
     }
   }
-
 }
 
 export default new GifConverterThreadWorker()

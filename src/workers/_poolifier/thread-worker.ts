@@ -49,6 +49,12 @@ export class ThreadWorker<
   protected handleReadyMessageEvent(
     messageEvent: MessageEvent<MessageValue<Data>>,
   ): void {
+
+    console.log({
+      messageEvent,
+      taskFunctions: this.taskFunctions,
+      opts: this.opts,
+    })
     if (
       messageEvent.data?.workerId != null &&
       messageEvent.data?.ready === false &&

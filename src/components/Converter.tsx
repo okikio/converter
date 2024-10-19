@@ -3,6 +3,8 @@ import type {
   ConverterOutput,
 } from "../workers/gif-to-mp4-worker.ts";
 
+import WorkerURL from "../workers/gif-to-mp4-worker?worker&url";
+
 import { convertGifToMp4 } from "../converters/gif-to-mp4.ts";
 
 import { createResource, createSignal, For, Show } from "solid-js";
@@ -29,7 +31,7 @@ export function Converter() {
   const [totalGifs, setTotalGifs] = createSignal(0);
   const [converting, setConverting] = createSignal(false);
 
-  const [fixedPool] = createResource(() => "document" in globalThis, async (test) => {
+  const [dynamicPool] = createResource(() => "document" in globalThis, async (test) => {
     if (test) {
       const { availableParallelism, DynamicThreadPool, PoolEvents } =
         await import("@poolifier/poolifier-web-worker");
@@ -38,11 +40,12 @@ export function Converter() {
       const _pool = new DynamicThreadPool<ConverterInput, ConverterOutput>(
         1,
         availableParallelism(),
-        new URL("../workers/gif-to-mp4-worker.ts", import.meta.url),
+        new URL(WorkerURL, location.origin),
         {
           errorEventHandler: (e) => {
             console.error("Worker pool error:", e);
           },
+          startWorkers: true
         }
       );
 
@@ -109,7 +112,7 @@ export function Converter() {
       selected: boolean;
     }[] = [];
 
-    const pool = fixedPool();
+    const pool = dynamicPool();
     if (pool) {
       const MAX_NUM_OF_WORKERS = pool?.availableParallelism() ?? 1;
 
@@ -118,6 +121,10 @@ export function Converter() {
         Array.from(validGifs.entries()),
         MAX_NUM_OF_WORKERS ?? 1
       );
+
+      console.log({
+        gifChunks,
+      });
 
       // Distribute conversion tasks among worker threads
       for (const chunk of gifChunks) {
