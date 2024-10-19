@@ -1,0 +1,14 @@
+{
+  "extends": "astro/tsconfigs/strict",
+  "compilerOptions": {
+    "target": "ES2022", // <--------- ✅✅✅✅✅✅
+    "module": "ES2022",
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
+    "lib": ["ES2022", "DOM", "DOM.AsyncIterable"],
+    "types": ["@types/dom-webcodecs"],
+
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true
+  }
+}
