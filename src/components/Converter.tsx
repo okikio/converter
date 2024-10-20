@@ -13,10 +13,11 @@ import "tailwindcss/tailwind.css";
 
 import { BlobReader, BlobWriter, ZipWriter } from "@zip-js/zip-js";
 import { chunkArray } from "../utils/utils.ts";
+import { basename } from "@std/path/posix";
 
 export function Converter() {
   const [gifUrls, setGifUrls] = createSignal<
-    { url: string; selected: boolean; errored?: boolean }[]
+    { url: string; file?: File; filePath: string; selected: boolean; errored?: boolean }[]
   >([]);
   const [mp4Videos, setMp4Videos] = createSignal<
     { url: string; filePath: string; selected: boolean }[]
@@ -68,17 +69,18 @@ export function Converter() {
     event.preventDefault();
     const input = (event.target as HTMLFormElement)["search"].value.trim();
     if (input && !gifUrls().some((gif) => gif.url === input)) {
+      const filePath = basename(input);
       fetch(input)
         .then((response) => {
           if (!response.ok) {
             throw new Error("Failed to load GIF");
           }
-          setGifUrls([...gifUrls(), { url: input, selected: false }]);
+          setGifUrls([...gifUrls(), { url: input, filePath, selected: false, errored: false }]);
         })
         .catch(() => {
           setGifUrls([
             ...gifUrls(),
-            { url: input, selected: false, errored: true },
+            { url: input, filePath, selected: false, errored: true },
           ]);
         });
     }
@@ -90,10 +92,12 @@ export function Converter() {
       const urls = Array.from(files).map((file) => {
         return {
           url: URL.createObjectURL(file),
+          file,
           filePath: file.name,
           selected: false,
         };
       });
+      console.log({urls})
       const newUrls = urls.filter(
         (urlObj) => !gifUrls().some((gif) => gif.url === urlObj.url)
       );
@@ -130,7 +134,7 @@ export function Converter() {
             convertedVideos.push({
               url: videoUrl,
               filePath:
-                output.file?.name?.replace(/\.gif$/, ".mp4") ??
+                gif.filePath?.replace(/\.gif$/, ".mp4") ??
                 `video${index}.mp4`,
               selected: false,
             });
@@ -151,12 +155,12 @@ export function Converter() {
       for (const chunk of gifChunks) {
         const chunkResults = await Promise.all(
           chunk.map(async ([index, gif]) => {
-            const videoFile = await convertGifToMp4(gif.url);
+            const videoFile = await convertGifToMp4(gif.file ?? gif.url);
             const videoUrl = URL.createObjectURL(videoFile!);
             return {
               url: videoUrl,
               filePath:
-                videoFile?.name?.replace(/\.gif$/, ".mp4") ??
+                gif.filePath?.replace(/\.gif$/, ".mp4") ??
                 `video${index}.mp4`,
               selected: false,
             };

@@ -1,4 +1,4 @@
-import { Muxer, ArrayBufferTarget } from "mp4-muxer";
+import { Muxer, ArrayBufferTarget } from "webm-muxer";
 
 /**
  * Decode a GIF from a given URL or File and return a ReadableStream of VideoFrame frames,
@@ -21,61 +21,69 @@ export async function decodeGifStream(input: string | File): Promise<{ framesStr
     data = await input.arrayBuffer();
   }
 
+  // Parse the GIF to get frame count and total duration
+  const view = new DataView(data);
+  let frameCount = 0;
+  let totalDurationMs = 0;
+
+  for (let i = 0; i < view.byteLength - 9; i++) {
+    // Check for the Graphics Control Extension block (0x21, 0xF9)
+    if (view.getUint8(i) === 0x21 && view.getUint8(i + 1) === 0xF9) {
+      // Frame delay is stored in the next 4 bytes after the block identifier
+      const delay = view.getUint16(i + 4, true); // Delay time in hundredths of a second
+      totalDurationMs += delay * 10; // Convert to milliseconds
+      frameCount++;
+    }
+  }
+
+  if (frameCount === 0) {
+    throw new Error("Failed to extract frame information from the GIF.");
+  }
+
+  // Calculate bitrate in bits per second
+  const fileSizeBytes = data.byteLength;
+  const fileSizeBits = fileSizeBytes * 8;
+  const durationSeconds = totalDurationMs / 1000;
+  const bitrate = Math.round(fileSizeBits * 1000 / durationSeconds);
+
+  // Calculate frame rate
+  const frameRate = Math.round(frameCount * 1000 / durationSeconds);
+
   // Create an ImageDecoder using a ReadableStream from the data
   const imageDecoder = new ImageDecoder({
     data: new Blob([data]).stream(),
     type: "image/gif",
   });
 
-
-  // Arrays to store frames and durations
-  const frames: VideoFrame[] = [];
-  let totalDurationUs = 0; // Total duration in microseconds
-  const defaultDurationUs = 100000; // Default duration per frame in microseconds (0.1 seconds)
-
-  let imageIndex = 0;
-  while (true) {
-    // Decode the current frame at the given index
-    const result = await imageDecoder.decode({ frameIndex: imageIndex });
-    frames.push(result.image); // Enqueue the decoded image frame to the stream
-
-    // Accumulate total duration
-    const durationUs = result.image.duration ?? defaultDurationUs; // duration in microseconds
-    totalDurationUs += durationUs;
-
-    // If we have decoded all frames, close the loop
-    const track = imageDecoder.tracks.selectedTrack;
-    if (!track || (imageDecoder.complete && imageIndex + 1 >= track.frameCount)) {
-      break;
-    }
-
-    // Increment the frame index to decode the next frame
-    imageIndex++;
-  }
-
-  const frameCount = frames.length;
-  let durationSeconds = totalDurationUs / 1e6; // Convert microseconds to seconds
-
-  // Handle cases where totalDurationUs is zero
-  if (durationSeconds === 0) {
-    // Set a default duration
-    durationSeconds = frameCount * (defaultDurationUs / 1e6);
-  }
-
-  // Calculate bitrate in bits per second
-  const fileSizeBytes = data.byteLength;
-  const fileSizeBits = fileSizeBytes * 8;
-  const bitrate = Math.min(1e6, Math.max(500_000, Math.round(fileSizeBits / durationSeconds)));
-
-  // Calculate frame rate
-  const frameRate = Math.min(60, Math.max(1, Math.round(frameCount / durationSeconds)));
-
   const framesStream = new ReadableStream<VideoFrame>({
-    async start(controller) {
-      for (const frame of frames) {
-        controller.enqueue(frame); // Enqueue the frame to the stream
+    async pull(controller) {
+      let imageIndex = 0;
+      try {
+        while (true) {
+          // Decode the current frame at the given index
+          const result = await imageDecoder.decode({ frameIndex: imageIndex });
+          controller.enqueue(result.image); // Enqueue the decoded image frame to the stream
+
+          const track = imageDecoder.tracks.selectedTrack;
+
+          // If we have decoded all frames, close the loop
+          if (!track || (imageDecoder.complete && imageIndex + 1 >= track.frameCount)) {
+            controller.close();
+            break;
+          }
+
+          // Increment the frame index to decode the next frame
+          imageIndex++;
+        }
+      } catch (e) {
+        if (e instanceof RangeError && imageDecoder.complete) {
+          // Close the stream when we reach the end
+          controller.close();
+        } else {
+          // Handle any other errors
+          controller.error(e);
+        }
       }
-      controller.close(); // Close the stream after enqueuing all frames
     },
   });
 
@@ -172,6 +180,11 @@ function getFileNameWithMp4(input: string | File): string {
   return "video.mp4"; // Default fallback
 }
 
+// Example usage:
+// const url = "https://example.com/animation.gif";
+// decodeGifStream(url).then(({ framesStream, bitrate, frameRate }) => console.log(`Bitrate: ${bitrate} bps, Frame Rate: ${frameRate} fps`));
+
+
 /**
  * Function to encode frames from a ReadableStream to an MP4 file
  * 
@@ -187,12 +200,10 @@ export async function encodeToMp4Stream(framesStream: ReadableStream<VideoFrame>
   const muxer = new Muxer({
     target: new ArrayBufferTarget(),
     video: {
-      codec: 'avc',
+      codec: 'V_VP9',
       width: width,
       height: height,
-      frameRate: frameRate, // Frame rate in timescale units (milliseconds)
     },
-    fastStart: 'in-memory',
   });
 
   // Configure the video encoder
@@ -202,11 +213,10 @@ export async function encodeToMp4Stream(framesStream: ReadableStream<VideoFrame>
   });
 
   videoEncoder.configure({
-    codec: 'avc1.42001f',
+    codec: 'vp09.00.10.08',
     width: width,
     height: height,
-    bitrate: bitrate,
-    framerate: frameRate, // Frame rate in timescale units (milliseconds)
+    bitrate: 1e6,
   });
 
   const reader = framesStream.getReader();
@@ -216,7 +226,7 @@ export async function encodeToMp4Stream(framesStream: ReadableStream<VideoFrame>
       const { value: frameData, done } = await reader.read();
       if (done) break;
 
-      videoEncoder.encode(frameData); // Encode the frame, ensuring it is a keyframe
+      videoEncoder.encode(frameData, { keyFrame: true }); // Encode the frame, ensuring it is a keyframe
       frameData.close(); // Close the frame to release resources
     }
 

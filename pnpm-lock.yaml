@@ -23,6 +23,9 @@ importers:
       '@poolifier/poolifier-web-worker':
         specifier: npm:@jsr/poolifier__poolifier-web-worker@^0.4.29
         version: '@jsr/poolifier__poolifier-web-worker@0.4.29'
+      '@std/path':
+        specifier: npm:@jsr/std__path@^1.0.6
+        version: '@jsr/std__path@1.0.6'
       '@zip-js/zip-js':
         specifier: npm:@jsr/zip-js__zip-js@^2.7.52
         version: '@jsr/zip-js__zip-js@2.7.52'
@@ -44,6 +47,9 @@ importers:
       typescript:
         specifier: ^5.6.3
         version: 5.6.3
+      webm-muxer:
+        specifier: ^5.0.2
+        version: 5.0.2
     devDependencies:
       '@types/dom-webcodecs':
         specifier: ^0.1.13
@@ -506,6 +512,9 @@ packages:
 
   '@jsr/poolifier__poolifier-web-worker@0.4.29':
     resolution: {integrity: sha512-klEYEXNx/jrH1pBjotrs8uQGh/b6yyO1RNL41P5XPLprD0SVWYI07rUTVi6ReVrXP0tYcUNsr8ffmuJMlNd4IQ==, tarball: https://npm.jsr.io/~/11/@jsr/poolifier__poolifier-web-worker/0.4.29.tgz}
+
+  '@jsr/std__path@1.0.6':
+    resolution: {integrity: sha512-A8WmQshHm5W5jN1OO24qH0VHWVv6vvmUzJiODKvvIUW1jNGVf04b86b9XWMoZPwlMEHq1mGgxWN9AuXY0CY2yg==, tarball: https://npm.jsr.io/~/11/@jsr/std__path/1.0.6.tgz}
 
   '@jsr/zip-js__zip-js@2.7.52':
     resolution: {integrity: sha512-fyqFInHruWXR+0+dePJnaQwEbPCpseCHkom5tQI6/ODeaODbLlrSOAmVmj0ldTy/vkWPQUXB3COd4wGlp+HqCw==, tarball: https://npm.jsr.io/~/11/@jsr/zip-js__zip-js/2.7.52.tgz}
@@ -2197,6 +2206,9 @@ packages:
   web-namespaces@2.0.1:
     resolution: {integrity: sha512-bKr1DkiNa2krS7qxNtdrtHAmzuYGFQLiQ13TsorsdT6ULTkPLKuu5+GsFpDlg6JFjUTwX2DyhMPG2be8uPrqsQ==}
 
+  webm-muxer@5.0.2:
+    resolution: {integrity: sha512-/1m0ZGOcx8TvEmqY+U7GromXTKtto4pi5ou+ZvaQXEjb+G/v1cln2ZbKK3T4fpWhLBYjKBeYWza/y1Nxccm5pg==}
+
   which-pm-runs@1.1.0:
     resolution: {integrity: sha512-n1brCuqClxfFfq/Rb0ICg9giSZqCS+pLtccdag6C2HyufBrh3fBOiy9nb6ggRMvWOVH5GrdJskj5iGTZNxd7SA==}
     engines: {node: '>=4'}
@@ -2730,6 +2742,8 @@ snapshots:
   '@jsr/okikio__transferables@1.0.2': {}
 
   '@jsr/poolifier__poolifier-web-worker@0.4.29': {}
+
+  '@jsr/std__path@1.0.6': {}
 
   '@jsr/zip-js__zip-js@2.7.52': {}
 
@@ -4742,6 +4756,11 @@ snapshots:
   vscode-uri@3.0.8: {}
 
   web-namespaces@2.0.1: {}
+
+  webm-muxer@5.0.2:
+    dependencies:
+      '@types/dom-webcodecs': 0.1.13
+      '@types/wicg-file-system-access': 2020.9.8
 
   which-pm-runs@1.1.0: {}
 
