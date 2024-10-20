@@ -76,6 +76,7 @@ export async function decodeGifStream(input: string | File): Promise<{ framesStr
         controller.enqueue(frame); // Enqueue the frame to the stream
       }
       controller.close(); // Close the stream after enqueuing all frames
+      frames.length = 0; // Clear the frames array
     },
   });
 
@@ -131,6 +132,7 @@ export async function convertGifToMp4(input: string | File): Promise<File | unde
         const { value, done } = await reader.read();
         if (done) {
           controller.close();
+          reader.releaseLock();
         } else {
           controller.enqueue(value);
         }

@@ -283,7 +283,8 @@ export const runtime: JavaScriptRuntimes = (() => {
   throw new Error('Unsupported JavaScript runtime environment')
 })()
 
-const isMainThread: boolean | undefined = await (async (): Promise<
+const isMainThread: boolean | undefined = undefined; /*
+await (async (): Promise<
   boolean | undefined
 > => {
   return await {
@@ -295,14 +296,15 @@ const isMainThread: boolean | undefined = await (async (): Promise<
       return (await import('node:worker_threads')).isMainThread
     },
   }[runtime]()
-})()
+})() */
 
 /**
  * The current environment name.
  *
  * @internal
  */
-export const environment: string = await (async (): Promise<string> => {
+export const environment: string = 'production'; /*
+await (async (): Promise<string> => {
   return await {
     browser: () => 'production',
     deno: () => {
@@ -316,7 +318,7 @@ export const environment: string = await (async (): Promise<string> => {
       return (await import('node:process')).env.ENVIRONMENT ?? 'production'
     },
   }[runtime]()
-})()
+})() */
 
 /**
  * Whether the current environment is a web worker or not.

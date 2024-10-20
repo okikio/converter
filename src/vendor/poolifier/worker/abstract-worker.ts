@@ -27,6 +27,8 @@ import {
 } from './utils.ts'
 import { KillBehaviors, type WorkerOptions } from './worker-options.ts'
 
+import { getTransferables } from '@okikio/transferables'
+
 const DEFAULT_MAX_INACTIVE_TIME = 60000
 const DEFAULT_WORKER_OPTIONS: WorkerOptions = {
   /**
@@ -503,6 +505,7 @@ export abstract class AbstractWorker<
    */
   protected abstract sendToMainWorker(
     message: MessageValue<Response, Data>,
+    transferables?: Transferable[]
   ): void
 
   /**
@@ -566,11 +569,12 @@ export abstract class AbstractWorker<
       let taskPerformance = this.beginTaskPerformance(name)
       const res = fn(data)
       taskPerformance = this.endTaskPerformance(taskPerformance)
+      const transferables = getTransferables(res)
       this.sendToMainWorker({
         data: res,
         taskPerformance,
         taskId,
-      })
+      }, transferables)
     } catch (error) {
       this.sendToMainWorker({
         workerError: {

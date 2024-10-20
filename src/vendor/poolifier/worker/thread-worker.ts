@@ -1,3 +1,4 @@
+/// <reference lib="webworker" />
 import type { MessageValue } from '../utility-types.ts'
 import { isWebWorker } from '../utils.ts'
 import { AbstractWorker } from './abstract-worker.ts'
@@ -43,7 +44,7 @@ export class ThreadWorker<
     taskFunctions: TaskFunction<Data, Response> | TaskFunctions<Data, Response>,
     opts: WorkerOptions = {},
   ) {
-    super(!isWebWorker, self, taskFunctions, opts)
+    super(!isWebWorker, self as (WorkerGlobalScope & typeof globalThis), taskFunctions, opts)
   }
 
   /** @inheritDoc */
@@ -81,12 +82,14 @@ export class ThreadWorker<
   /** @inheritDoc */
   protected readonly sendToMainWorker = (
     message: MessageValue<Response>,
+    transferables: Transferable[] = []
   ): void => {
     this.port?.postMessage(
       {
         ...message,
         workerId: this.id,
       } satisfies MessageValue<Response>,
+      transferables
     )
   }
 

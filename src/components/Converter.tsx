@@ -31,7 +31,7 @@ export function Converter() {
   const [conversionProgress, setConversionProgress] = createSignal(0);
   const [totalGifs, setTotalGifs] = createSignal(0);
   const [converting, setConverting] = createSignal(false);
-  const [useThreadPool, setUseThreadPool] = createSignal(false); // New state to track checkbox
+  const [useThreadPool, setUseThreadPool] = createSignal(true); // New state to track checkbox
 
   const [dynamicPool] = createResource(() => "document" in globalThis, async (test) => {
     if (test) {
@@ -40,7 +40,7 @@ export function Converter() {
 
       // Set up a fixed worker pool
       const _pool = new DynamicThreadPool<ConverterInput, ConverterOutput>(
-        1,
+        Math.max(1, Math.floor(availableParallelism() / 2)),
         availableParallelism(),
         new URL(WorkerURL, location.origin),
         {
@@ -122,11 +122,14 @@ export function Converter() {
 
     const pool = dynamicPool();
     if (pool && useThreadPool()) {
+      console.log({
+        UseThreadPools: true,
+        pool,
+      })
       // Distribute conversion tasks among worker threads
       await Promise.all(
         Array.from(validGifs.entries(), async ([index, gif]) => {
-          console.log({ index, gif })
-          const result = await pool.pool.execute({ url: gif.url, index });
+          const result = await pool.pool.execute({ url: gif.url, file: gif.file, index });
           const output = result.message;
 
           if (output.status === "success" && output.file) {
@@ -138,6 +141,7 @@ export function Converter() {
                 `video${index}.mp4`,
               selected: false,
             });
+
             setConversionProgress((prev) => prev + 1);
           } else {
             // Handle errors by marking them in the UI
@@ -153,7 +157,7 @@ export function Converter() {
 
       // Step 3: Process each chunk sequentially using Promise.all
       for (const chunk of gifChunks) {
-        const chunkResults = await Promise.all(
+        const chunkResults = await Promise.allSettled(
           chunk.map(async ([index, gif]) => {
             const videoFile = await convertGifToMp4(gif.file ?? gif.url);
             const videoUrl = URL.createObjectURL(videoFile!);
@@ -166,10 +170,21 @@ export function Converter() {
             };
           })
         );
-        convertedVideos.push(...chunkResults);
+
+        const videos = chunkResults.map((result, index) => {
+          if (result.status === "fulfilled") {
+            convertedVideos.push(result.value);
+            return result.value;
+          } else {
+            // Handle errors by marking them in the UI
+            const updatedGifs = [...gifUrls()];
+            updatedGifs[chunk[index][0]].errored = true;
+            setGifUrls(updatedGifs);
+          }
+        }).filter(video => video);
 
         // Step 4: Update the progress after each chunk is processed
-        setConversionProgress((prev) => prev + chunk.length);
+        setConversionProgress((prev) => prev + videos.length);
       }
     }
 
