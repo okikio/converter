@@ -204,7 +204,7 @@ export async function encodeToMp4Stream(framesStream: ReadableStream<VideoFrame>
   });
 
   videoEncoder.configure({
-    codec: 'avc1.42001f',
+    codec: 'avc1.640032',
     width: width,
     height: height,
     bitrate: bitrate,
