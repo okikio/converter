@@ -4,28 +4,61 @@ import type {
 } from "../workers/gif-to-mp4-worker.ts";
 
 import WorkerURL from "../workers/gif-to-mp4-worker?worker&url";
-
 import { convertGifToMp4 } from "../converters/gif-to-mp4.ts";
 
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, For, onMount, Show } from "solid-js";
 import { effect } from "solid-js/web";
 import "tailwindcss/tailwind.css";
 
 import { BlobReader, BlobWriter, ZipWriter } from "@zip-js/zip-js";
 import { chunkArray } from "../utils/utils.ts";
-import { basename } from "@std/path/posix";
+import { basename, fromFileUrl } from "@std/path/posix";
+
+import { createStorage } from "unstorage";
+import opfsDriver from "../libs/opfs.ts";
+
+const inputStorage = createStorage({
+  driver: opfsDriver({ base: "tmp" }),
+});
+
+const outputStorage = createStorage({
+  driver: opfsDriver({ base: "output" }),
+});
+
+const previewUrls = new Map<string, string>();
+async function getPreviewUrl(
+  filePath: string,
+  storage: typeof outputStorage | typeof inputStorage = inputStorage
+) {
+  if (previewUrls.has(filePath)) 
+    return previewUrls.get(filePath);
+
+  const file = await storage.getItem<File>(filePath);
+  if (file) {
+    const previewUrl = URL.createObjectURL(file);
+    previewUrls.set(filePath, previewUrl);
+    return previewUrl;
+  }
+}
+
+function revokePreviewUrls(filePath: string) {
+  if (previewUrls.has(filePath)) {
+    const previewUrl = previewUrls.get(filePath)!;
+    return URL.revokeObjectURL(previewUrl);
+  }
+}
 
 export function Converter() {
-  const [gifUrls, setGifUrls] = createSignal<
-    { url: string; file?: File; filePath: string; selected: boolean; errored?: boolean }[]
+  const [gifList, setGifList] = createSignal<
+    { id: number; filePath: string; selected: boolean; errored?: boolean }[]
   >([]);
   const [mp4Videos, setMp4Videos] = createSignal<
-    { url: string; filePath: string; selected: boolean }[]
+    { filePath: string; selected: boolean }[]
   >([]);
   const [viewMode, setViewMode] = createSignal<"grid" | "list">("grid");
   const [showAllInputs, setShowAllInputs] = createSignal(false);
   const [latestInputGifs, setLatestInputGifs] = createSignal<
-    { url: string; selected: boolean; errored?: boolean }[]
+    { filePath: string; selected: boolean; errored?: boolean }[]
   >([]);
   
   const [conversionProgress, setConversionProgress] = createSignal(0);
@@ -40,17 +73,17 @@ export function Converter() {
 
       // Set up a fixed worker pool
       const _pool = new DynamicThreadPool<ConverterInput, ConverterOutput>(
-        Math.max(1, Math.floor(availableParallelism() / 2)),
-        availableParallelism(),
+        Math.max(1, Math.floor(availableParallelism() / 2) - 2),
+        Math.max(1, Math.floor(availableParallelism() - 2)),
         new URL(WorkerURL, location.origin),
         {
           errorEventHandler: (e) => {
             console.error("Worker pool error:", e);
           },
           messageEventHandler: (e) => {
-            console.log({ e })
+            console.log({ e });
           },
-          startWorkers: true
+          startWorkers: true,
         }
       );
 
@@ -65,49 +98,83 @@ export function Converter() {
     }
   });
 
-  const handleSearch = (event: Event) => {
+  const handleSearch = async (event: Event) => {
     event.preventDefault();
     const input = (event.target as HTMLFormElement)["search"].value.trim();
-    if (input && !gifUrls().some((gif) => gif.url === input)) {
-      const filePath = basename(input);
-      fetch(input)
-        .then((response) => {
+    if (input) {
+      const filePath = fromFileUrl(input);
+      const currentUrls = gifList()
+        .filter(x => !x.errored)
+        .map((x) => x.filePath);
+      const currentUrlsLength = currentUrls.length;
+
+      if (!currentUrls.includes(filePath)) {
+        try {
+          const response  = await fetch(input);
           if (!response.ok) {
-            throw new Error("Failed to load GIF");
+            throw new Error(`Failed to fetch gif: ${response.statusText}`);
           }
-          setGifUrls([...gifUrls(), { url: input, filePath, selected: false, errored: false }]);
-        })
-        .catch(() => {
-          setGifUrls([
-            ...gifUrls(),
-            { url: input, filePath, selected: false, errored: true },
+
+          const arrayBuffer = await response.arrayBuffer();
+          const blob = new Blob([arrayBuffer], {
+            type: response.headers.get("Content-Type") || "application/octet-stream",
+          });
+
+          const file = new File([blob], filePath);
+          await inputStorage.setItem(file.name, file);
+
+          setGifList([
+            ...gifList(),
+            {
+              id: currentUrlsLength,
+              filePath,
+              selected: false,
+              errored: false,
+            },
           ]);
-        });
+        } catch (e) {
+          console.warn(e);
+          setGifList([
+            ...gifList(),
+            {
+              id: currentUrlsLength,
+              filePath,
+              selected: false,
+              errored: true,
+            },
+          ]);
+
+        }
+      }
     }
   };
 
   const handleUpload = async (event: Event) => {
     const files = (event.target as HTMLInputElement).files;
     if (files) {
-      const urls = Array.from(files).map((file) => {
+      const currentUrls = gifList()
+        .filter((x) => !x.errored)
+        .map((x) => x.filePath);
+      const currentUrlsLength = currentUrls.length;
+
+      const newUrls = Array.from(files, (file) => {
+        if (currentUrls.includes(file.name)) return null;
+
         return {
-          url: URL.createObjectURL(file),
-          file,
-          filePath: file.name,
-          selected: false,
+          key: file.name,
+          value: file,
         };
-      });
-      console.log({urls})
-      const newUrls = urls.filter(
-        (urlObj) => !gifUrls().some((gif) => gif.url === urlObj.url)
-      );
-      setGifUrls([...gifUrls(), ...newUrls]);
+      }).filter((x) => x) as { key: string; value: File }[];
+      await inputStorage.setItems(newUrls);
+      
+      const newGifs = newUrls.map((x, index) => ({ id: currentUrlsLength + index, filePath: x.key, selected: false }))
+      setGifList([...gifList(), ...newGifs]);
     }
   };
 
   const convertAllToMp4 = async () => {
     // Step 1: Filter out any GIFs that encountered errors
-    const validGifs = gifUrls().filter((gif) => !gif.errored);
+    const validGifs = gifList().filter((gif) => !gif.errored);
 
     // Set total GIFs for tracking progress
     setTotalGifs(validGifs.length);
@@ -126,28 +193,31 @@ export function Converter() {
         UseThreadPools: true,
         pool,
       })
+
       // Distribute conversion tasks among worker threads
       await Promise.all(
         Array.from(validGifs.entries(), async ([index, gif]) => {
-          const result = await pool.pool.execute({ url: gif.url, file: gif.file, index });
+          const result = await pool.pool.execute({ filePath: gif.filePath, index });
           const output = result.message;
 
-          if (output.status === "success" && output.file) {
-            const videoUrl = URL.createObjectURL(output.file);
-            convertedVideos.push({
-              url: videoUrl,
-              filePath:
-                gif.filePath?.replace(/\.gif$/, ".mp4") ??
-                `video${index}.mp4`,
-              selected: false,
-            });
+          if (output.status === "success" && output.filePath) {
+            const videoUrl = await getPreviewUrl(output.filePath, outputStorage);
+            if (videoUrl) {
+              convertedVideos.push({
+                url: videoUrl,
+                filePath:
+                  gif.filePath?.replace(/\.gif$/, ".mp4") ??
+                  `video${index}.mp4`,
+                selected: false,
+              });
 
-            setConversionProgress((prev) => prev + 1);
+              setConversionProgress((prev) => prev + 1);
+            }
           } else {
             // Handle errors by marking them in the UI
-            const updatedGifs = [...gifUrls()];
+            const updatedGifs = [...gifList()];
             updatedGifs[index].errored = true;
-            setGifUrls(updatedGifs);
+            setGifList(updatedGifs);
           }
         })
       );
@@ -159,7 +229,15 @@ export function Converter() {
       for (const chunk of gifChunks) {
         const chunkResults = await Promise.allSettled(
           chunk.map(async ([index, gif]) => {
-            const videoFile = await convertGifToMp4(gif.file ?? gif.url);
+            const file = await inputStorage.getItem<File>(gif.filePath!);
+            if (!file) throw new Error(`Couldn't find file at file path ${gif.filePath}`);
+
+            const videoFile = await convertGifToMp4(file);
+            if (!videoFile)
+              throw new Error(`Error converting file at file path ${gif.filePath}`);
+
+            await outputStorage.setItem(videoFile.name, videoFile);
+
             const videoUrl = URL.createObjectURL(videoFile!);
             return {
               url: videoUrl,
@@ -177,9 +255,9 @@ export function Converter() {
             return result.value;
           } else {
             // Handle errors by marking them in the UI
-            const updatedGifs = [...gifUrls()];
+            const updatedGifs = [...gifList()];
             updatedGifs[chunk[index][0]].errored = true;
-            setGifUrls(updatedGifs);
+            setGifList(updatedGifs);
           }
         }).filter(video => video);
 
@@ -216,7 +294,7 @@ export function Converter() {
         // Step 3: Loop through each video and add it to the zip file
         for (const video of videos) {
           try {
-            const response = await fetch(video.url);
+            const response = await fetch(video.preview);
             const blob = await response.blob();
 
             // Add the MP4 file to the zip using its file name
@@ -280,7 +358,7 @@ export function Converter() {
                 const writable = await fileHandle.createWritable();
 
                 // Fetch the video data and write it to the file
-                const response = await fetch(video.url);
+                const response = await fetch(video.preview);
                 const blob = await response.blob();
                 await writable.write(blob);
                 await writable.close();
@@ -303,7 +381,7 @@ export function Converter() {
           for (const video of videos) {
             // Fallback for browsers without showSaveFilePicker
             const a = document.createElement("a");
-            a.href = video.url;
+            a.href = video.preview;
             a.download = video.filePath.endsWith(".mp4")
               ? video.filePath
               : `${video.filePath}.mp4`;
@@ -319,13 +397,13 @@ export function Converter() {
   };
 
   const toggleGifSelection = (index: number) => {
-    const updatedGifs = [...gifUrls()];
+    const updatedGifs = [...gifList()];
     updatedGifs[index].selected = !updatedGifs[index].selected;
     console.log({
       updatedGifs,
       index,
     });
-    setGifUrls(updatedGifs);
+    setGifList(updatedGifs);
   };
 
   const toggleVideoSelection = (index: number) => {
@@ -334,19 +412,27 @@ export function Converter() {
     setMp4Videos(updatedVideos);
   };
 
-  const deleteSelectedGifs = () => {
-    gifUrls().forEach((gif) => {
+  const deleteSelectedGifs = async () => {
+    await Promise.all(
+      gifList().map(async (gif) => {
       if (gif.selected) {
-        URL.revokeObjectURL(gif.url);
+        revokePreviewUrls(gif.filePath);
+        await inputStorage.removeItem(gif.filePath);
       }
-    });
-    setGifUrls(gifUrls().filter((gif) => !gif.selected));
+    }));
+
+    setGifList(gifList().filter((gif) => !gif.selected));
   };
 
   effect(() => {
-    const urls = Array.from(gifUrls());
+    const urls = Array.from(gifList());
     setLatestInputGifs(urls.slice(-5));
   });
+
+  onMount(() => {
+    inputStorage.clear();
+    outputStorage.clear();
+  })
 
   return (
     <div class="min-h-screen flex flex-col items-center bg-gray-100 p-6">
@@ -449,7 +535,7 @@ export function Converter() {
             onClick={() => toggleGifSelection(index)}
           >
             <img
-              src={gif.url}
+              src={gif.preview}
               alt={`GIF ${index + 1}`}
               class="rounded-lg w-full h-32 object-cover"
             />
@@ -462,7 +548,7 @@ export function Converter() {
           </div>
         ))}
       </div>
-      <Show when={gifUrls().length > 5}>
+      <Show when={gifList().length > 5}>
         <button
           onClick={() => setShowAllInputs(true)}
           class="mb-4 text-white bg-gray-700 hover:bg-gray-800 focus:ring-4 focus:ring-gray-300 font-medium rounded-lg text-sm px-6 py-2"
@@ -484,7 +570,7 @@ export function Converter() {
               </button>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-              <For each={gifUrls()}>
+              <For each={gifList()}>
                 {(gif, index) => (
                   <div
                     class={`relative p-4 border rounded-lg shadow-md cursor-pointer hover:shadow-lg ${
@@ -497,7 +583,7 @@ export function Converter() {
                     onClick={() => toggleGifSelection(index())}
                   >
                     <img
-                      src={gif.url}
+                      src={gif.preview}
                       alt={`GIF ${index() + 1}`}
                       class="rounded-lg w-full h-32 object-cover"
                     />
@@ -539,7 +625,7 @@ export function Converter() {
               onClick={() => toggleVideoSelection(index())}
             >
               <video
-                src={video.url}
+                src={await getPreviewUrl(video.filePath, outputStorage)}
                 controls
                 class="rounded-lg w-full mt-4"
               ></video>
